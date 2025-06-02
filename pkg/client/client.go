@@ -1,6 +1,10 @@
 package client
 
-import "context"
+import (
+	"context"
+
+	"github.com/surrealdb/surrealdb.go"
+)
 
 // SurrealConfig defines the configuration for the SurrealDB database.
 type SurrealConfig struct {
@@ -16,9 +20,9 @@ type SurrealConfig struct {
 type SurrealDBClient interface {
 	Close()
 	Create(thing string, data interface{}) (interface{}, error)
-	Query(sql string, vars interface{}) (interface{}, error)
-	Signin(vars interface{}) (interface{}, error)
-	Use(namespace string, database string) (interface{}, error)
+	Query(sql string, vars map[string]interface{}) (interface{}, error)
+	Signin(auth *surrealdb.Auth) (interface{}, error)
+	Use(namespace string, database string) error
 }
 
 // Client defines the client for the SurrealDB database.
@@ -33,20 +37,21 @@ func Use(db SurrealDBClient) *Client {
 
 // Connect connects to the SurrealDB database.
 func (c *Client) Connect(config *SurrealConfig) (bool, error) {
-	credentials := map[string]interface{}{
-		"user": config.Username,
-		"pass": config.Password,
+	authData := &surrealdb.Auth{
+		Username: config.Username,
+		Password: config.Password,
 	}
 
-	if config.Scope != "" {
-		credentials["scope"] = config.Scope
-	}
+	// Scope found in config but surrealdb.Auth for v0.3.0 does not have a Scope field. This needs review.
+	// If config.Scope is essential for authentication, the method to include it needs to be determined
+	// for surrealdb.go v0.3.0. It might be part of a DEFINE SCOPE statement on the server
+	// or a specific JWT token.
 
-	if _, err := c.db.Signin(credentials); err != nil {
+	if _, err := c.db.Signin(authData); err != nil {
 		return false, err
 	}
 
-	if _, err := c.db.Use(config.Namespace, config.Database); err != nil {
+	if err := c.db.Use(config.Namespace, config.Database); err != nil {
 		return false, err
 	}
 
@@ -54,7 +59,7 @@ func (c *Client) Connect(config *SurrealConfig) (bool, error) {
 }
 
 // QueryWithContext wraps the Query method to handle context for cancellation/timeout
-func (c *Client) QueryWithContext(ctx context.Context, query string, args interface{}) (interface{}, error) {
+func (c *Client) QueryWithContext(ctx context.Context, query string, args map[string]interface{}) (interface{}, error) {
 	rc := make(chan interface{})
 	ec := make(chan error)
 
